@@ -1,10 +1,11 @@
 import streamlit as st
 from PIL import Image
 import io
+import numpy as np
 
 st.set_page_config(page_title="DTF Alpha Cleaner Pro", layout="wide")
 
-# ✅ CSS compatible con todas las versiones de Streamlit
+# CSS compatible con todas las versiones
 st.markdown("""
 <style>
 .black-box {
@@ -28,8 +29,8 @@ if 'key' not in st.session_state:
 
 def restart():
     st.session_state.key += 1
-    # ✅ Compatibilidad máxima: usa experimental_rerun para versiones antiguas
-    st.experimental_rerun()
+    # ✅ CORRECCIÓN CLAVE: Streamlit 1.57.0 usa st.rerun() (NO experimental_rerun)
+    st.rerun()  # ¡Este es el cambio que resuelve tu error!
 
 st.title("DTF Alpha Cleaner Pro")
 st.write("Limpia bordes suaves de IA para una impresión DTF perfecta.")
@@ -37,7 +38,7 @@ st.write("Limpia bordes suaves de IA para una impresión DTF perfecta.")
 uploaded_file = st.file_uploader(
     "Sube tu diseño (PNG con transparencia)", 
     type=["png"], 
-    key="uploader_" + str(st.session_state.key)
+    key=f"uploader_{st.session_state.key}"
 )
 
 if uploaded_file is not None:
@@ -56,28 +57,34 @@ if uploaded_file is not None:
         if st.button("Cargar otra imagen"):
             restart()
 
+    # ✅ CORRECCIÓN CLAVE: Evita getdata() obsoleto usando numpy
     img = Image.open(uploaded_file).convert("RGBA")
-    pixels = list(img.getdata())
-    preview_pixels = []
-    clean_pixels = []
+    img_array = np.array(img)
     
-    for p in pixels:
-        r, g, b, a = p
-        if 0 < a < threshold:
-            preview_pixels.append((255, 0, 0, 255))
-            clean_pixels.append((0, 0, 0, 0))
-        elif a == 0:
-            preview_pixels.append((0, 0, 0, 0))
-            clean_pixels.append((0, 0, 0, 0))
-        else:
-            preview_pixels.append((r, g, b, 255))
-            clean_pixels.append((r, g, b, 255))
-
-    img_preview = Image.new("RGBA", img.size)
-    img_preview.putdata(preview_pixels)
+    # Procesamiento con numpy (más rápido y compatible)
+    r, g, b, a = img_array[:, :, 0], img_array[:, :, 1], img_array[:, :, 2], img_array[:, :, 3]
     
-    img_clean = Image.new("RGBA", img.size)
-    img_clean.putdata(clean_pixels)
+    # Crear máscara para píxeles semitransparentes
+    mask = (a > 0) & (a < threshold)
+    
+    # Preparar imágenes de vista previa y limpia
+    preview_array = img_array.copy()
+    clean_array = img_array.copy()
+    
+    # Marcar en rojo en la vista previa
+    preview_array[mask, 0] = 255  # Rojo
+    preview_array[mask, 1] = 0
+    preview_array[mask, 2] = 0
+    preview_array[mask, 3] = 255  # Opacidad total para ver el rojo
+    
+    # Eliminar en la versión limpia
+    clean_array[mask, 3] = 0  # Transparente
+    
+    # Conservar opacidad total en áreas sólidas
+    clean_array[a >= threshold, 3] = 255
+    
+    img_preview = Image.fromarray(preview_array)
+    img_clean = Image.fromarray(clean_array)
 
     col1, col2 = st.columns(2)
 
